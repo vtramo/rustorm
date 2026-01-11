@@ -15,7 +15,7 @@ impl Node<GeneratePayload> for GenerateNode {
     where
         Self: Sized,
     {
-        let node_id = common_init_node(init_msg, output)?;
+        let (node_id, _) = common_init_node(init_msg, output)?;
         let generate_node = GenerateNode {
             id: node_id,
             msg_id: 1,

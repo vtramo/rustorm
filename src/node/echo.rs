@@ -1,4 +1,4 @@
-use crate::node::{Node, common_init_node};
+use crate::node::{common_init_node, Node};
 use crate::payloads::{EchoPayload, InitPayload};
 use crate::stdout_json::StdoutJson;
 use crate::{Body, Message};
@@ -13,7 +13,7 @@ impl Node<EchoPayload> for EchoNode {
     where
         Self: Sized,
     {
-        let node_id = common_init_node(init_msg, output)?;
+        let (node_id, _) = common_init_node(init_msg, output)?;
         let echo_node = EchoNode {
             id: node_id,
             msg_id: 1,

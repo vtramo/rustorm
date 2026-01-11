@@ -3,10 +3,11 @@ pub mod node;
 pub mod payloads;
 pub mod stdout_json;
 
+use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message<T> {
+pub struct Message<T> where T: Debug {
     pub src: String,
 
     #[serde(rename = "dest")]
