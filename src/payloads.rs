@@ -17,7 +17,7 @@ pub struct InitPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub struct InitOkPayload {    
+pub struct InitOkPayload {
     #[serde(rename = "type")]
     pub ty: String,
 }
@@ -35,7 +35,7 @@ impl InitOkPayload {
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum GeneratePayload {
-    Generate { echo: String },
+    Generate,
     GenerateOk {
         #[serde(rename = "id")]
         guid: String

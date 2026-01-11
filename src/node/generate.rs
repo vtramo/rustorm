@@ -1,8 +1,9 @@
-use crate::node::{Node, common_init_node};
+use crate::node::{common_init_node, Node};
 use crate::payloads::GeneratePayload::GenerateOk;
 use crate::payloads::{GeneratePayload, InitPayload};
 use crate::stdout_json::StdoutJson;
 use crate::{Body, Message};
+use anyhow::Context;
 
 pub struct GenerateNode {
     pub id: String,
@@ -36,10 +37,12 @@ impl Node<GeneratePayload> for GenerateNode {
                         msg_id: Some(self.msg_id),
                         in_reply_to: input.body.msg_id,
                         payload: GenerateOk {
-                            guid: ulid::Generator::new().generate()?.to_string(),
+                            guid: self.generate_guid_using_node_id(),
                         },
                     },
                 };
+
+                self.msg_id += 1;
 
                 output.write(&generate_ok)?;
             }
@@ -47,5 +50,18 @@ impl Node<GeneratePayload> for GenerateNode {
         };
 
         Ok(())
+    }
+}
+
+impl GenerateNode {
+    fn generate_ulid(&self) -> anyhow::Result<String> {
+        Ok(ulid::Generator::new()
+            .generate()
+            .context("failed to generate ulid")?
+            .to_string())
+    }
+
+    fn generate_guid_using_node_id(&self) -> String {
+        format!("{}-{}", self.id, self.msg_id)
     }
 }
