@@ -1,7 +1,7 @@
 use crate::node::{common_init_node, Node};
 use crate::payloads::{EchoPayload, InitPayload};
 use crate::stdout_json::StdoutJson;
-use crate::{Body, Message};
+use crate::Message;
 
 pub struct EchoNode {
     pub id: String,
@@ -26,25 +26,14 @@ impl Node<EchoPayload> for EchoNode {
         input_msg: Message<EchoPayload>,
         output: &mut StdoutJson,
     ) -> anyhow::Result<()> {
-        match input_msg.body.payload {
+        let mut reply = input_msg.into_reply(Some(&mut self.msg_id));
+        match reply.body.payload {
             EchoPayload::Echo { echo } => {
-                let reply = Message {
-                    src: self.id.clone(),
-                    dst: input_msg.src,
-                    body: Body {
-                        msg_id: Some(self.msg_id),
-                        in_reply_to: input_msg.body.msg_id,
-                        payload: EchoPayload::EchoOk { echo },
-                    },
-                };
-
+                reply.body.payload = EchoPayload::EchoOk { echo };
                 output.write(&reply)?;
-
-                self.msg_id += 1;
-
-                Ok(())
             }
-            EchoPayload::EchoOk { .. } => Ok(()),
-        }
+            EchoPayload::EchoOk { .. } => {}
+        };
+        Ok(())
     }
 }

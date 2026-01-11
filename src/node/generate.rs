@@ -2,7 +2,7 @@ use crate::node::{common_init_node, Node};
 use crate::payloads::GeneratePayload::GenerateOk;
 use crate::payloads::{GeneratePayload, InitPayload};
 use crate::stdout_json::StdoutJson;
-use crate::{Body, Message};
+use crate::Message;
 use anyhow::Context;
 
 pub struct GenerateNode {
@@ -28,27 +28,16 @@ impl Node<GeneratePayload> for GenerateNode {
         input: Message<GeneratePayload>,
         output: &mut StdoutJson,
     ) -> anyhow::Result<()> {
-        match input.body.payload {
+        let mut reply = input.into_reply(Some(&mut self.msg_id));
+        match reply.body.payload {
             GeneratePayload::Generate { .. } => {
-                let generate_ok = Message {
-                    src: self.id.clone(),
-                    dst: input.src,
-                    body: Body {
-                        msg_id: Some(self.msg_id),
-                        in_reply_to: input.body.msg_id,
-                        payload: GenerateOk {
-                            guid: self.generate_guid_using_node_id(),
-                        },
-                    },
+                reply.body.payload = GenerateOk {
+                    guid: self.generate_guid_using_node_id(),
                 };
-
-                self.msg_id += 1;
-
-                output.write(&generate_ok)?;
+                output.write(&reply)?;
             }
             GenerateOk { .. } => {}
         };
-
         Ok(())
     }
 }

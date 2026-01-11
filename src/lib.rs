@@ -16,6 +16,24 @@ pub struct Message<T> where T: Debug {
     pub body: Body<T>,
 }
 
+impl<T> Message<T> where T: Debug {
+    pub fn into_reply(self, id: Option<&mut usize>) -> Self {
+        Self {
+            src: self.dst,
+            dst: self.src,
+            body: Body {
+                msg_id: id.map(|id| {
+                    let mid = *id;
+                    *id += 1;
+                    mid
+                }),
+                in_reply_to: self.body.msg_id,
+                payload: self.body.payload,
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Body<T> {
     #[serde(rename = "msg_id")]
