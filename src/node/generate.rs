@@ -1,17 +1,22 @@
-use crate::node::{common_init_node, Node};
-use crate::payloads::GeneratePayload::GenerateOk;
-use crate::payloads::{GeneratePayload, InitPayload};
-use crate::stdout_json::StdoutJson;
 use crate::Message;
+use crate::node::{Node, common_init_node};
+use crate::payloads::GeneratePayload::GenerateOk;
+use crate::payloads::{Event, GeneratePayload, InitPayload};
+use crate::stdout_json::StdoutJson;
 use anyhow::Context;
 
+#[derive(Debug, Clone)]
 pub struct GenerateNode {
     pub id: String,
     pub msg_id: usize,
 }
 
 impl Node<GeneratePayload> for GenerateNode {
-    fn init(init_msg: Message<InitPayload>, output: &mut StdoutJson) -> anyhow::Result<Self>
+    fn init(
+        init_msg: Message<InitPayload>,
+        output: &mut StdoutJson,
+        _tx_channel: std::sync::mpsc::Sender<Event<GeneratePayload, ()>>,
+    ) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
@@ -25,9 +30,12 @@ impl Node<GeneratePayload> for GenerateNode {
 
     fn step(
         &mut self,
-        input: Message<GeneratePayload>,
+        event: Event<GeneratePayload, ()>,
         output: &mut StdoutJson,
     ) -> anyhow::Result<()> {
+        let Event::Message(input) = event else {
+            panic!("only message events are allowed");
+        };
         let mut reply = input.into_reply(Some(&mut self.msg_id));
         match reply.body.payload {
             GeneratePayload::Generate { .. } => {
@@ -43,6 +51,7 @@ impl Node<GeneratePayload> for GenerateNode {
 }
 
 impl GenerateNode {
+    #[allow(dead_code)]
     fn generate_ulid(&self) -> anyhow::Result<String> {
         Ok(ulid::Generator::new()
             .generate()

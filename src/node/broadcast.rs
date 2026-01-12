@@ -1,18 +1,23 @@
 use crate::node::{common_init_node, Node};
-use crate::payloads::{BroadcastPayload, InitPayload};
+use crate::payloads::{BroadcastPayload, Event, InitPayload};
 use crate::stdout_json::StdoutJson;
 use crate::Message;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct BroadcastNode {
     pub id: String,
     pub msg_id: usize,
     pub node_ids: Vec<String>,
-    pub broadcast_messages: Vec<usize>,
+    pub broadcast_messages: HashSet<usize>,
 }
 
 impl Node<BroadcastPayload> for BroadcastNode {
-    fn init(init_msg: Message<InitPayload>, output: &mut StdoutJson) -> anyhow::Result<Self>
+    fn init(
+        init_msg: Message<InitPayload>,
+        output: &mut StdoutJson,
+        _tx_channel: std::sync::mpsc::Sender<Event<BroadcastPayload, ()>>,
+    ) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
@@ -21,20 +26,22 @@ impl Node<BroadcastPayload> for BroadcastNode {
             id: node_id,
             msg_id: 0,
             node_ids,
-            broadcast_messages: Vec::new(),
+            broadcast_messages: HashSet::new(),
         })
     }
 
     fn step(
         &mut self,
-        input: Message<BroadcastPayload>,
+        event: Event<BroadcastPayload, ()>,
         output: &mut StdoutJson,
     ) -> anyhow::Result<()> {
+        let Event::Message(input) = event else {
+            panic!("only message events are allowed");
+        };
         let mut reply = input.into_reply(Some(&mut self.msg_id));
         match reply.body.payload {
             BroadcastPayload::Broadcast { message } => {
-                self.broadcast_messages.push(message);
-                self.broadcast_message(message, output)?;
+                self.broadcast_messages.insert(message);
                 reply.body.payload = BroadcastPayload::BroadcastOk;
                 output.write(&reply)?;
             }
@@ -50,16 +57,10 @@ impl Node<BroadcastPayload> for BroadcastNode {
             }
             BroadcastPayload::TopologyOk { .. }
             | BroadcastPayload::ReadOk { .. }
-            | BroadcastPayload::BroadcastOk => {}
+            | BroadcastPayload::BroadcastOk
+            | BroadcastPayload::Gossip { .. }
+            | BroadcastPayload::GossipOk { .. } => {}
         };
-        Ok(())
-    }
-}
-
-impl BroadcastNode {
-    fn broadcast_message(&self, msg: usize, output: &mut StdoutJson) -> anyhow::Result<()> {
-        for node_id in &self.node_ids {}
-
         Ok(())
     }
 }

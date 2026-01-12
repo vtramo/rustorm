@@ -1,5 +1,7 @@
+use crate::Message;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::marker::{Send, Sync};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,12 +64,35 @@ pub enum BroadcastPayload {
     BroadcastOk,
     Read,
     ReadOk {
-        messages: Vec<usize>,
+        messages: HashSet<usize>,
     },
     Topology {
         topology: HashMap<String, Vec<String>>,
     },
     TopologyOk,
+    Gossip {
+        seen: HashSet<usize>,
+    },
+    GossipOk {
+        seen: HashSet<usize>,
+    },
 }
 unsafe impl Send for BroadcastPayload {}
 unsafe impl Sync for BroadcastPayload {}
+
+#[derive(Debug, Clone)]
+pub enum InjectedPayload {
+    Gossip,
+}
+unsafe impl Send for InjectedPayload {}
+unsafe impl Sync for InjectedPayload {}
+
+#[derive(Debug, Clone)]
+pub enum Event<P, IP>
+where
+    P: Debug,
+    IP: Debug,
+{
+    Message(Message<P>),
+    InjectedPayload(IP),
+}

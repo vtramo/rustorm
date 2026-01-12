@@ -3,5 +3,5 @@ use rustorm::node::echo::EchoNode;
 use rustorm::payloads::EchoPayload;
 
 fn main() -> anyhow::Result<()> {
-    main_loop::<EchoNode, EchoPayload>()    
+    main_loop::<EchoNode, EchoPayload, ()>()
 }

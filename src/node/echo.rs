@@ -1,15 +1,20 @@
-use crate::node::{common_init_node, Node};
-use crate::payloads::{EchoPayload, InitPayload};
-use crate::stdout_json::StdoutJson;
 use crate::Message;
+use crate::node::{Node, common_init_node};
+use crate::payloads::{EchoPayload, Event, InitPayload};
+use crate::stdout_json::StdoutJson;
 
+#[derive(Debug, Clone)]
 pub struct EchoNode {
     pub id: String,
     pub msg_id: usize,
 }
 
 impl Node<EchoPayload> for EchoNode {
-    fn init(init_msg: Message<InitPayload>, output: &mut StdoutJson) -> anyhow::Result<Self>
+    fn init(
+        init_msg: Message<InitPayload>,
+        output: &mut StdoutJson,
+        _tx_channel: std::sync::mpsc::Sender<Event<EchoPayload, ()>>,
+    ) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
@@ -23,10 +28,13 @@ impl Node<EchoPayload> for EchoNode {
 
     fn step(
         &mut self,
-        input_msg: Message<EchoPayload>,
+        event: Event<EchoPayload, ()>,
         output: &mut StdoutJson,
     ) -> anyhow::Result<()> {
-        let mut reply = input_msg.into_reply(Some(&mut self.msg_id));
+        let Event::Message(input) = event else {
+            panic!("only message events are allowed");
+        };
+        let mut reply = input.into_reply(Some(&mut self.msg_id));
         match reply.body.payload {
             EchoPayload::Echo { echo } => {
                 reply.body.payload = EchoPayload::EchoOk { echo };

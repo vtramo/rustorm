@@ -3,5 +3,5 @@ use rustorm::node::broadcast::BroadcastNode;
 use rustorm::payloads::BroadcastPayload;
 
 fn main() -> anyhow::Result<()> {
-    main_loop::<BroadcastNode, BroadcastPayload>()
+    main_loop::<BroadcastNode, BroadcastPayload, ()>()
 }

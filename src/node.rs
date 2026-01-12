@@ -1,20 +1,26 @@
 pub mod broadcast;
 pub mod echo;
 pub mod generate;
+pub mod multibroadcast;
 
-use crate::payloads::{InitOkPayload, InitPayload};
+use crate::payloads::{Event, InitOkPayload, InitPayload};
 use crate::stdout_json::StdoutJson;
 use crate::{Body, Message};
 use std::fmt::Debug;
 
-pub trait Node<T>
+pub trait Node<P, IP = ()>
 where
-    T: Debug,
+    P: Debug,
+    IP: Debug,
 {
-    fn init(init_msg: Message<InitPayload>, output: &mut StdoutJson) -> anyhow::Result<Self>
+    fn init(
+        init_msg: Message<InitPayload>,
+        output: &mut StdoutJson,
+        tx_channel: std::sync::mpsc::Sender<Event<P, IP>>,
+    ) -> anyhow::Result<Self>
     where
         Self: Sized;
-    fn step(&mut self, input: Message<T>, output: &mut StdoutJson) -> anyhow::Result<()>;
+    fn step(&mut self, event: Event<P, IP>, output: &mut StdoutJson) -> anyhow::Result<()>;
 }
 
 fn common_init_node(

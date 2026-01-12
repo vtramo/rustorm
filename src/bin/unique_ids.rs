@@ -3,6 +3,6 @@ use rustorm::node::generate::GenerateNode;
 use rustorm::payloads::GeneratePayload;
 
 fn main() -> anyhow::Result<()> {
-    main_loop::<GenerateNode, GeneratePayload>()?;
+    main_loop::<GenerateNode, GeneratePayload, ()>()?;
     Ok(())
 }
