@@ -1,4 +1,4 @@
-use crate::node::{common_init_node, Node};
+use crate::node::{Node, common_init_node};
 use crate::payloads::{BroadcastPayload, Event, InitPayload, InjectedPayload};
 use crate::stdout_json::StdoutJson;
 use crate::{Body, Message};
@@ -61,8 +61,8 @@ impl Node<BroadcastPayload, InjectedPayload> for MultiNodeBroadcast {
                         };
                         output.write(&reply)?;
                     }
-                    BroadcastPayload::Topology { mut topology } => {
-                        self.adj = self.construct_topology(&mut topology).collect();
+                    BroadcastPayload::Topology { .. } => {
+                        self.adj = self.construct_fully_connected_topology().collect();
                         reply.body.payload = BroadcastPayload::TopologyOk;
                         output.write(&reply)?;
                     }
@@ -129,7 +129,7 @@ impl MultiNodeBroadcast {
     ) {
         std::thread::spawn(move || {
             loop {
-                std::thread::sleep(std::time::Duration::from_millis(300));
+                std::thread::sleep(std::time::Duration::from_millis(1000));
                 if let Err(_) = tx_channel.send(Event::InjectedPayload(InjectedPayload::Gossip)) {
                     break;
                 }
@@ -137,7 +137,8 @@ impl MultiNodeBroadcast {
         });
     }
 
-    fn construct_topology(
+    #[allow(dead_code)]
+    fn construct_maelstrom_topology(
         &mut self,
         topology: &mut HashMap<String, Vec<String>>,
     ) -> impl Iterator<Item = String> {
@@ -146,6 +147,31 @@ impl MultiNodeBroadcast {
             .expect(&format!("topology for node {} not received!", self.id))
             .into_iter()
             .filter(|adj_node_id| adj_node_id != &self.id)
+    }
+
+    #[allow(dead_code)]
+    fn construct_tree_topology(&self) -> impl Iterator<Item = String> {
+        let mut node_ids = self.known.keys().collect::<Vec<_>>();
+        node_ids.sort();
+        let start = node_ids.binary_search(&&self.id).unwrap();
+        let mut topology = Vec::with_capacity(2);
+        if let Some(left) = node_ids.get((start * 2) + 1) {
+            topology.push(left.to_string());
+        }
+        if let Some(right) = node_ids.get((start * 2) + 2) {
+            topology.push(right.to_string());
+        }
+        topology.into_iter()
+    }
+
+    fn construct_fully_connected_topology(&mut self) -> impl Iterator<Item = String> {
+        let node_ids = self
+            .known
+            .keys()
+            .filter(|node_id| **node_id != self.id)
+            .cloned()
+            .collect::<Vec<_>>();
+        node_ids.into_iter()
     }
 
     fn is_fully_synced(&self, adj: impl AsRef<str>) -> bool {
