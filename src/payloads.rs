@@ -73,9 +73,7 @@ pub enum BroadcastPayload {
     Gossip {
         seen: HashSet<usize>,
     },
-    GossipOk {
-        seen: HashSet<usize>,
-    },
+    GossipOk,
 }
 unsafe impl Send for BroadcastPayload {}
 unsafe impl Sync for BroadcastPayload {}

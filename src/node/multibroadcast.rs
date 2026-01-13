@@ -1,4 +1,4 @@
-use crate::node::{Node, common_init_node};
+use crate::node::{common_init_node, Node};
 use crate::payloads::{BroadcastPayload, Event, InitPayload, InjectedPayload};
 use crate::stdout_json::StdoutJson;
 use crate::{Body, Message};
@@ -9,7 +9,9 @@ pub struct MultiNodeBroadcast {
     pub id: String,
     pub msg_id: usize,
     pub broadcast_messages: HashSet<usize>,
-    pub adj: HashMap<String, HashSet<usize>>,
+    pub adj: HashSet<String>,
+    pub known: HashMap<String, HashSet<usize>>,
+    pub msg_communicated: HashMap<usize, HashSet<usize>>,
 }
 
 impl Node<BroadcastPayload, InjectedPayload> for MultiNodeBroadcast {
@@ -26,7 +28,12 @@ impl Node<BroadcastPayload, InjectedPayload> for MultiNodeBroadcast {
             id: node_id,
             msg_id: 0,
             broadcast_messages: HashSet::new(),
-            adj: HashMap::with_capacity(node_ids.len()),
+            adj: HashSet::with_capacity(node_ids.len()),
+            known: node_ids
+                .into_iter()
+                .map(|id| (id, HashSet::new()))
+                .collect(),
+            msg_communicated: Default::default(),
         };
         Self::generate_gossiping_thread(tx_channel);
         Ok(multi_node_broadcast)
@@ -40,6 +47,7 @@ impl Node<BroadcastPayload, InjectedPayload> for MultiNodeBroadcast {
         match event {
             Event::Message(message) => {
                 let src = message.src.clone();
+                let in_reply_to = message.body.in_reply_to;
                 let mut reply = message.into_reply(Some(&mut self.msg_id));
                 match reply.body.payload {
                     BroadcastPayload::Broadcast { message } => {
@@ -54,23 +62,25 @@ impl Node<BroadcastPayload, InjectedPayload> for MultiNodeBroadcast {
                         output.write(&reply)?;
                     }
                     BroadcastPayload::Topology { mut topology } => {
-                        self.adj = self.construct_topology(&mut topology);
+                        self.adj = self.construct_topology(&mut topology).collect();
                         reply.body.payload = BroadcastPayload::TopologyOk;
                         output.write(&reply)?;
                     }
                     BroadcastPayload::Gossip { seen } => {
                         self.broadcast_messages.extend(seen.clone());
-                        if let Some(adj_seen) = self.adj.get_mut(&src) {
+                        if let Some(adj_seen) = self.known.get_mut(&src) {
                             adj_seen.extend(seen);
                         }
-                        reply.body.payload = BroadcastPayload::GossipOk {
-                            seen: self.broadcast_messages.clone(),
-                        };
+                        reply.body.payload = BroadcastPayload::GossipOk;
+                        output.write(&reply)?;
                     }
-                    BroadcastPayload::GossipOk { seen } => {
-                        self.broadcast_messages.extend(seen.clone());
-                        if let Some(adj_seen) = self.adj.get_mut(&src) {
-                            adj_seen.extend(seen);
+                    BroadcastPayload::GossipOk => {
+                        if let Some((adj_seen, msg_communicated)) =
+                            self.known.get_mut(&src).zip(self.msg_communicated.get_mut(
+                                &in_reply_to.expect("gossip ok should have in_reply_to field"),
+                            ))
+                        {
+                            adj_seen.extend(msg_communicated.clone());
                         }
                     }
                     BroadcastPayload::TopologyOk { .. }
@@ -80,22 +90,28 @@ impl Node<BroadcastPayload, InjectedPayload> for MultiNodeBroadcast {
             }
             Event::InjectedPayload(injected_payload) => match injected_payload {
                 InjectedPayload::Gossip => {
-                    for adj_node_id in self.adj.keys() {
+                    for adj_node_id in &self.adj {
                         if self.is_fully_synced(adj_node_id) {
                             continue;
                         }
 
+                        let unseen_messages = self
+                            .get_unseen_messages(adj_node_id)
+                            .collect::<HashSet<_>>();
                         let gossip_msg = Message {
                             src: self.id.clone(),
                             dst: adj_node_id.clone(),
                             body: Body {
-                                msg_id: None,
+                                msg_id: Some(self.msg_id),
                                 in_reply_to: None,
                                 payload: BroadcastPayload::Gossip {
-                                    seen: self.get_unseen_messages(adj_node_id).collect(),
+                                    seen: unseen_messages.clone(),
                                 },
                             },
                         };
+
+                        self.msg_communicated.insert(self.msg_id, unseen_messages);
+                        self.msg_id += 1;
 
                         output.write(&gossip_msg)?;
                     }
@@ -124,23 +140,21 @@ impl MultiNodeBroadcast {
     fn construct_topology(
         &mut self,
         topology: &mut HashMap<String, Vec<String>>,
-    ) -> HashMap<String, HashSet<usize>> {
+    ) -> impl Iterator<Item = String> {
         topology
             .remove(&self.id)
             .expect(&format!("topology for node {} not received!", self.id))
             .into_iter()
             .filter(|adj_node_id| adj_node_id != &self.id)
-            .map(|adj_node_id| (adj_node_id, HashSet::new()))
-            .collect()
     }
 
     fn is_fully_synced(&self, adj: impl AsRef<str>) -> bool {
-        let seen_by_adj = &self.adj[adj.as_ref()];
+        let seen_by_adj = &self.known[adj.as_ref()];
         seen_by_adj.len() == self.broadcast_messages.len()
     }
 
     fn get_unseen_messages(&self, adj: impl AsRef<str>) -> impl Iterator<Item = usize> {
-        let seen_by_adj = &self.adj[adj.as_ref()];
+        let seen_by_adj = &self.known[adj.as_ref()];
         self.broadcast_messages
             .iter()
             .filter(|msg| !seen_by_adj.contains(*msg))
