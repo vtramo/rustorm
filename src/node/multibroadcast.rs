@@ -9,7 +9,7 @@ pub struct MultiNodeBroadcast {
     pub id: String,
     pub msg_id: usize,
     pub broadcast_messages: HashSet<usize>,
-    pub adj: HashMap<String, Vec<String>>,
+    pub adj: HashMap<String, HashSet<usize>>,
 }
 
 impl Node<BroadcastPayload, InjectedPayload> for MultiNodeBroadcast {
@@ -39,6 +39,7 @@ impl Node<BroadcastPayload, InjectedPayload> for MultiNodeBroadcast {
     ) -> anyhow::Result<()> {
         match event {
             Event::Message(message) => {
+                let src = message.src.clone();
                 let mut reply = message.into_reply(Some(&mut self.msg_id));
                 match reply.body.payload {
                     BroadcastPayload::Broadcast { message } => {
@@ -53,28 +54,37 @@ impl Node<BroadcastPayload, InjectedPayload> for MultiNodeBroadcast {
                         output.write(&reply)?;
                     }
                     BroadcastPayload::Topology { mut topology } => {
-                        self.adj = topology
-                            .remove(&self.id)
-                            .expect(&format!("topology for node {} not received!", self.id))
-                            .into_iter()
-                            .filter(|adj_node_id| adj_node_id != &self.id)
-                            .map(|adj_node_id| (adj_node_id, Vec::new()))
-                            .collect();
+                        self.adj = self.construct_topology(&mut topology);
                         reply.body.payload = BroadcastPayload::TopologyOk;
                         output.write(&reply)?;
                     }
                     BroadcastPayload::Gossip { seen } => {
-                        self.broadcast_messages.extend(seen);
+                        self.broadcast_messages.extend(seen.clone());
+                        if let Some(adj_seen) = self.adj.get_mut(&src) {
+                            adj_seen.extend(seen);
+                        }
+                        reply.body.payload = BroadcastPayload::GossipOk {
+                            seen: self.broadcast_messages.clone(),
+                        };
+                    }
+                    BroadcastPayload::GossipOk { seen } => {
+                        self.broadcast_messages.extend(seen.clone());
+                        if let Some(adj_seen) = self.adj.get_mut(&src) {
+                            adj_seen.extend(seen);
+                        }
                     }
                     BroadcastPayload::TopologyOk { .. }
                     | BroadcastPayload::ReadOk { .. }
-                    | BroadcastPayload::BroadcastOk
-                    | BroadcastPayload::GossipOk { .. } => {}
+                    | BroadcastPayload::BroadcastOk => {}
                 };
             }
             Event::InjectedPayload(injected_payload) => match injected_payload {
                 InjectedPayload::Gossip => {
                     for adj_node_id in self.adj.keys() {
+                        if self.is_fully_synced(adj_node_id) {
+                            continue;
+                        }
+
                         let gossip_msg = Message {
                             src: self.id.clone(),
                             dst: adj_node_id.clone(),
@@ -82,10 +92,11 @@ impl Node<BroadcastPayload, InjectedPayload> for MultiNodeBroadcast {
                                 msg_id: None,
                                 in_reply_to: None,
                                 payload: BroadcastPayload::Gossip {
-                                    seen: self.broadcast_messages.clone(),
+                                    seen: self.get_unseen_messages(adj_node_id).collect(),
                                 },
                             },
                         };
+
                         output.write(&gossip_msg)?;
                     }
                 }
@@ -108,5 +119,31 @@ impl MultiNodeBroadcast {
                 }
             }
         });
+    }
+
+    fn construct_topology(
+        &mut self,
+        topology: &mut HashMap<String, Vec<String>>,
+    ) -> HashMap<String, HashSet<usize>> {
+        topology
+            .remove(&self.id)
+            .expect(&format!("topology for node {} not received!", self.id))
+            .into_iter()
+            .filter(|adj_node_id| adj_node_id != &self.id)
+            .map(|adj_node_id| (adj_node_id, HashSet::new()))
+            .collect()
+    }
+
+    fn is_fully_synced(&self, adj: impl AsRef<str>) -> bool {
+        let seen_by_adj = &self.adj[adj.as_ref()];
+        seen_by_adj.len() == self.broadcast_messages.len()
+    }
+
+    fn get_unseen_messages(&self, adj: impl AsRef<str>) -> impl Iterator<Item = usize> {
+        let seen_by_adj = &self.adj[adj.as_ref()];
+        self.broadcast_messages
+            .iter()
+            .filter(|msg| !seen_by_adj.contains(*msg))
+            .copied()
     }
 }
