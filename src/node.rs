@@ -1,6 +1,7 @@
 pub mod broadcast;
 pub mod echo;
 pub mod generate;
+pub mod gocounter;
 pub mod multibroadcast;
 
 use crate::payloads::{Event, InitOkPayload, InitPayload};

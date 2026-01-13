@@ -35,7 +35,7 @@ impl Node<BroadcastPayload, InjectedPayload> for MultiNodeBroadcast {
                 .collect(),
             msg_communicated: Default::default(),
         };
-        Self::generate_gossiping_thread(tx_channel);
+        Self::spawn_gossiping_thread(tx_channel);
         Ok(multi_node_broadcast)
     }
 
@@ -124,7 +124,7 @@ impl Node<BroadcastPayload, InjectedPayload> for MultiNodeBroadcast {
 }
 
 impl MultiNodeBroadcast {
-    fn generate_gossiping_thread(
+    fn spawn_gossiping_thread(
         tx_channel: std::sync::mpsc::Sender<Event<BroadcastPayload, InjectedPayload>>,
     ) {
         std::thread::spawn(move || {

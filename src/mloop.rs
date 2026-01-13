@@ -10,8 +10,9 @@ use std::io::BufRead;
 pub fn main_loop<N, P, IP>() -> anyhow::Result<()>
 where
     N: Node<P, IP>,
-    P: DeserializeOwned + Debug + Send + 'static,
+    P: Debug + Send + 'static,
     IP: Debug + Send + 'static,
+    Message<P>: DeserializeOwned,
 {
     let stdin = std::io::stdin().lock();
     let mut stdin_lines = stdin.lines();

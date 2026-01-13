@@ -3,11 +3,14 @@ pub mod node;
 pub mod payloads;
 pub mod stdout_json;
 
-use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message<T> where T: Debug {
+#[derive(Debug, Clone, Serialize)]
+pub struct Message<T>
+where
+    T: Debug,
+{
     pub src: String,
 
     #[serde(rename = "dest")]
@@ -16,7 +19,44 @@ pub struct Message<T> where T: Debug {
     pub body: Body<T>,
 }
 
-impl<T> Message<T> where T: Debug {
+macro_rules! impl_message_deserialize {
+    ($($payload:ty),* $(,)?) => {
+        $(
+            impl<'de> serde::Deserialize<'de> for Message<$payload> {
+                fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+                where
+                    D: serde::Deserializer<'de>,
+                {
+                    #[derive(Deserialize)]
+                    struct MessageHelper<T> {
+                        src: String,
+                        #[serde(rename = "dest")]
+                        dst: String,
+                        body: Body<T>,
+                    }
+                    let helper = MessageHelper::<$payload>::deserialize(deserializer)?;
+                    Ok(Message {
+                        src: helper.src,
+                        dst: helper.dst,
+                        body: helper.body,
+                    })
+                }
+            }
+        )*
+    };
+}
+
+impl_message_deserialize!(
+    payloads::EchoPayload,
+    payloads::GeneratePayload,
+    payloads::BroadcastPayload,
+    payloads::InitPayload,
+);
+
+impl<T> Message<T>
+where
+    T: Debug,
+{
     pub fn into_reply(self, id: Option<&mut usize>) -> Self {
         Self {
             src: self.dst,
@@ -29,7 +69,7 @@ impl<T> Message<T> where T: Debug {
                 }),
                 in_reply_to: self.body.msg_id,
                 payload: self.body.payload,
-            }
+            },
         }
     }
 }

@@ -1,5 +1,7 @@
-use crate::Message;
-use serde::{Deserialize, Serialize};
+use crate::{Body, Message};
+use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_core::Serializer;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::marker::{Send, Sync};
@@ -93,4 +95,128 @@ where
 {
     Message(Message<P>),
     InjectedPayload(IP),
+}
+
+#[derive(Debug, Clone)]
+pub enum GoCounterOrSeqKvMessage {
+    GoCounter(Message<GoCounterPayload>),
+    SeqKv(Message<SeqKvPayload>),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub enum GoCounterOrSeqKvPayload {
+    GoCounter(GoCounterPayload),
+    SeqKv(SeqKvPayload),
+}
+
+impl Serialize for GoCounterOrSeqKvPayload {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            GoCounterOrSeqKvPayload::GoCounter(go_counter_payload) => {
+                go_counter_payload.serialize(serializer)
+            }
+            GoCounterOrSeqKvPayload::SeqKv(seq_kv_payload) => seq_kv_payload.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Message<GoCounterOrSeqKvPayload> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let mut json = serde_json::Value::deserialize(deserializer)?;
+
+        let src = json
+            .get("src")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| Error::missing_field("src"))?
+            .to_string();
+
+        let dest = json
+            .get("dest")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| Error::missing_field("dest"))?
+            .to_string();
+
+        let body_val = json
+            .get_mut("body")
+            .ok_or_else(|| Error::missing_field("body"))?
+            .take();
+
+        if src == "seq-kv" {
+            let body = serde_json::from_value::<Body<SeqKvPayload>>(body_val)
+                .map_err(|_| Error::custom("failed to deserialize body seq kv"))?;
+
+            Ok(Message {
+                src,
+                dst: dest,
+                body: Body {
+                    msg_id: body.msg_id,
+                    in_reply_to: body.in_reply_to,
+                    payload: GoCounterOrSeqKvPayload::SeqKv(body.payload),
+                },
+            })
+        } else {
+            let body = serde_json::from_value::<Body<GoCounterPayload>>(body_val)
+                .map_err(|_| Error::custom("failed to deserialize body seq kv"))?;
+
+            Ok(Message {
+                src,
+                dst: dest,
+                body: Body {
+                    msg_id: body.msg_id,
+                    in_reply_to: body.in_reply_to,
+                    payload: GoCounterOrSeqKvPayload::GoCounter(body.payload),
+                },
+            })
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum GoCounterPayload {
+    Read,
+    ReadOk { value: usize },
+    Add { delta: usize },
+    AddOk,
+}
+unsafe impl Send for GoCounterPayload {}
+unsafe impl Sync for GoCounterPayload {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum SeqKvPayload {
+    Read {
+        key: String,
+    },
+    ReadOk {
+        value: usize,
+    },
+    Write {
+        key: String,
+        value: usize,
+    },
+    WriteOk,
+    Cas {
+        key: String,
+        from: usize,
+        to: usize,
+        create_if_not_exists: bool,
+    },
+    CasOk,
+}
+unsafe impl Send for SeqKvPayload {}
+unsafe impl Sync for SeqKvPayload {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SyncCounter {
+    Sync,
+    CheckWrites,
 }
