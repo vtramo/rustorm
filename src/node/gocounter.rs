@@ -60,8 +60,8 @@ impl Node<GoCounterOrSeqKvPayload, SyncCounter> for GrowOnlyCounterNode {
                     GoCounterOrSeqKvPayload::GoCounter(go_counter_payload) => {
                         match go_counter_payload {
                             GoCounterPayload::Read => {
-                                let global_value: usize = self.counter
-                                    + self.value_by_node_id.values().sum::<usize>();
+                                let global_value: usize =
+                                    self.counter + self.value_by_node_id.values().sum::<usize>();
                                 reply.body.payload =
                                     GoCounterOrSeqKvPayload::GoCounter(GoCounterPayload::ReadOk {
                                         value: global_value,
@@ -150,19 +150,6 @@ impl GrowOnlyCounterNode {
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(1000));
                 if let Err(_) = tx_channel.send(Event::InjectedPayload(SyncCounter::Sync)) {
-                    break;
-                }
-            }
-        });
-    }
-
-    fn spawn_write_fault_tolerant_thread(
-        tx_channel: std::sync::mpsc::Sender<Event<GoCounterOrSeqKvPayload, SyncCounter>>,
-    ) {
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                if let Err(_) = tx_channel.send(Event::InjectedPayload(SyncCounter::CheckWrites)) {
                     break;
                 }
             }

@@ -220,3 +220,35 @@ pub enum SyncCounter {
     Sync,
     CheckWrites,
 }
+
+unsafe impl Send for SyncCounter {}
+unsafe impl Sync for SyncCounter {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum KafkaLogPayload {
+    Send {
+        key: String,
+        msg: usize,
+    },
+    SendOk {
+        offset: usize,
+    },
+    Poll {
+        offsets: HashMap<String, usize>,
+    },
+    PollOk {
+        msgs: HashMap<String, Vec<(usize, usize)>>,
+    },
+    CommitOffsets {
+        offsets: HashMap<String, usize>,
+    },
+    CommitOffsetsOk,
+    ListCommittedOffsets {
+        keys: Vec<String>,
+    },
+    ListCommittedOffsetsOk {
+        offsets: HashMap<String, usize>,
+    },
+}

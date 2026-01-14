@@ -3,6 +3,7 @@ pub mod echo;
 pub mod generate;
 pub mod gocounter;
 pub mod multibroadcast;
+pub mod kafkalog;
 
 use crate::payloads::{Event, InitOkPayload, InitPayload};
 use crate::stdout_json::StdoutJson;
