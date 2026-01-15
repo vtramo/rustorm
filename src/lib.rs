@@ -2,6 +2,7 @@ pub mod mloop;
 pub mod node;
 pub mod payloads;
 pub mod stdout_json;
+pub mod stdout_json_async;
 
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
