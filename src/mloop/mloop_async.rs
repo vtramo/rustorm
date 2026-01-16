@@ -1,16 +1,17 @@
 use crate::Message;
-use crate::mloop::init;
-use crate::payloads::{KafkaLogOrKvPayload, KafkaLogPayload};
+use crate::mloop::receive_init_then_send_init_ok;
+use crate::node::multikafkalog::MultiKafkaLogNode;
+use crate::payloads::KafkaLogOrKvPayload;
 use crate::stdout_json::StdoutJson;
 use tokio::io::AsyncReadExt;
-use crate::node::multikafkalog::MultiKafkaLogNode;
 
 pub async fn main_loop_async() -> anyhow::Result<()> {
-    let init_msg = init()?;
+    let node_id = receive_init_then_send_init_ok()?;
 
     let (stdout_tx, mut stdout_rx) =
         tokio::sync::mpsc::unbounded_channel::<Message<KafkaLogOrKvPayload>>();
-    let (stdin_tx, stdin_rx) = tokio::sync::mpsc::unbounded_channel::<Message<KafkaLogOrKvPayload>>();
+    let (stdin_tx, stdin_rx) =
+        tokio::sync::mpsc::unbounded_channel::<Message<KafkaLogOrKvPayload>>();
 
     tokio::spawn(async move {
         let mut async_stdin = tokio::io::stdin();
@@ -30,12 +31,8 @@ pub async fn main_loop_async() -> anyhow::Result<()> {
         }
     });
 
-    let mut node = MultiKafkaLogNode::new(
-        init_msg.body.payload.node_id,
-        stdin_rx,
-        stdout_tx
-    );
-    
+    let mut node = MultiKafkaLogNode::new(node_id, stdin_rx, stdout_tx);
+
     node.run().await;
 
     Ok(())

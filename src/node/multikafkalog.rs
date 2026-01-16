@@ -4,6 +4,7 @@ use dashmap::DashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use log::debug;
 
 #[derive(Debug)]
 pub struct MultiKafkaLogNode {
@@ -90,6 +91,7 @@ impl MultiKafkaLogNode {
                                         )
                                     },
                                 }).expect("failed to write to seq-kv");
+                                debug!("send ok!")
                             },
                             _ => {}
                         }

@@ -1,4 +1,6 @@
+use rustorm::mloop::main_loop_async;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    Ok(())
+    main_loop_async().await
 }

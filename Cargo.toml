@@ -11,3 +11,4 @@ ulid = "1.2.1"
 serde_core = "1.0.228"
 tokio = { version = "1.49.0", features = ["full"]}
 dashmap = "6.1.0"
+log = "0.4.29"
