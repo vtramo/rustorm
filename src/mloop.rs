@@ -1,50 +1,19 @@
+mod mloop;
+mod mloop_async;
+
 use crate::Message;
-use crate::node::Node;
-use crate::payloads::{Event, InitPayload};
-use crate::stdout_json::StdoutJson;
+use crate::payloads::InitPayload;
 use anyhow::Context;
-use serde::de::DeserializeOwned;
-use std::fmt::Debug;
+pub use mloop::main_loop;
+pub use mloop_async::main_loop_async;
 use std::io::BufRead;
 
-pub fn main_loop<N, P, IP>() -> anyhow::Result<()>
-where
-    N: Node<P, IP>,
-    P: Debug + Send + 'static,
-    IP: Debug + Send + 'static,
-    Message<P>: DeserializeOwned,
-{
+pub fn init() -> anyhow::Result<Message<InitPayload>> {
     let stdin = std::io::stdin().lock();
     let mut stdin_lines = stdin.lines();
     let init_msg = stdin_lines
         .next()
         .context("first message should be init")??;
-    let init_msg = serde_json::from_str::<Message<InitPayload>>(&init_msg)
-        .context("first message should be init")?;
-
-    let (tx, rx) = std::sync::mpsc::channel::<Event<P, IP>>();
-    let tx_stdin = tx.clone();
-    drop(stdin_lines);
-    std::thread::spawn::<_, anyhow::Result<()>>(move || {
-        let tx = tx_stdin.clone();
-        let stdin = std::io::stdin().lock();
-        for stdin_line in stdin.lines() {
-            let stdin_line = stdin_line.context("failed to read from stdin")?;
-            let msg = serde_json::from_str::<Message<P>>(&stdin_line)
-                .context("msg deserialization failed")?;
-            if let Err(_) = tx.send(Event::Message(msg)) {
-                return Ok(());
-            };
-        }
-        Ok(())
-    });
-
-    let mut stdout_json = StdoutJson::new();
-    let mut node = N::init(init_msg, &mut stdout_json, tx)?;
-    for event in rx {
-        node.step(event, &mut stdout_json)
-            .context("node step function failed")?;
-    }
-
-    Ok(())
+    Ok(serde_json::from_str::<Message<InitPayload>>(&init_msg)
+        .context("first message should be init")?)
 }

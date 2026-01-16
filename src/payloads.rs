@@ -97,16 +97,10 @@ where
     InjectedPayload(IP),
 }
 
-#[derive(Debug, Clone)]
-pub enum GoCounterOrSeqKvMessage {
-    GoCounter(Message<GoCounterPayload>),
-    SeqKv(Message<SeqKvPayload>),
-}
-
 #[derive(Debug, Clone, Deserialize)]
 pub enum GoCounterOrSeqKvPayload {
     GoCounter(GoCounterPayload),
-    SeqKv(SeqKvPayload),
+    SeqKv(KvPayload),
 }
 
 impl Serialize for GoCounterOrSeqKvPayload {
@@ -148,7 +142,7 @@ impl<'de> Deserialize<'de> for Message<GoCounterOrSeqKvPayload> {
             .take();
 
         if src == "seq-kv" {
-            let body = serde_json::from_value::<Body<SeqKvPayload>>(body_val)
+            let body = serde_json::from_value::<Body<KvPayload>>(body_val)
                 .map_err(|_| Error::custom("failed to deserialize body seq kv"))?;
 
             Ok(Message {
@@ -192,7 +186,7 @@ unsafe impl Sync for GoCounterPayload {}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-pub enum SeqKvPayload {
+pub enum KvPayload {
     Read {
         key: String,
     },
@@ -211,9 +205,14 @@ pub enum SeqKvPayload {
         create_if_not_exists: bool,
     },
     CasOk,
+    Error {
+        in_reply_to: usize,
+        code: usize,
+        text: String,
+    },
 }
-unsafe impl Send for SeqKvPayload {}
-unsafe impl Sync for SeqKvPayload {}
+unsafe impl Send for KvPayload {}
+unsafe impl Sync for KvPayload {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SyncCounter {
@@ -251,4 +250,81 @@ pub enum KafkaLogPayload {
     ListCommittedOffsetsOk {
         offsets: HashMap<String, usize>,
     },
+}
+
+#[derive(Debug, Clone)]
+pub enum KafkaLogOrKvPayload {
+    KafkaLog(KafkaLogPayload),
+    Kv(KvPayload),
+}
+
+unsafe impl Send for KafkaLogPayload {}
+unsafe impl Sync for KafkaLogPayload {}
+
+impl Serialize for KafkaLogOrKvPayload {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            KafkaLogOrKvPayload::KafkaLog(kafka_log_payload) => {
+                kafka_log_payload.serialize(serializer)
+            }
+            KafkaLogOrKvPayload::Kv(kv_payload) => kv_payload.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Message<KafkaLogOrKvPayload> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let mut json = serde_json::Value::deserialize(deserializer)?;
+
+        let src = json
+            .get("src")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| Error::missing_field("src"))?
+            .to_string();
+
+        let dest = json
+            .get("dest")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| Error::missing_field("dest"))?
+            .to_string();
+
+        let body_val = json
+            .get_mut("body")
+            .ok_or_else(|| Error::missing_field("body"))?
+            .take();
+
+        if src == "seq-kv" || src == "lin-kv" {
+            let body = serde_json::from_value::<Body<KvPayload>>(body_val)
+                .map_err(|_| Error::custom("failed to deserialize body kv"))?;
+
+            Ok(Message {
+                src,
+                dst: dest,
+                body: Body {
+                    msg_id: body.msg_id,
+                    in_reply_to: body.in_reply_to,
+                    payload: KafkaLogOrKvPayload::Kv(body.payload),
+                },
+            })
+        } else {
+            let body = serde_json::from_value::<Body<KafkaLogPayload>>(body_val)
+                .map_err(|_| Error::custom("failed to deserialize body seq kv"))?;
+
+            Ok(Message {
+                src,
+                dst: dest,
+                body: Body {
+                    msg_id: body.msg_id,
+                    in_reply_to: body.in_reply_to,
+                    payload: KafkaLogOrKvPayload::KafkaLog(body.payload),
+                },
+            })
+        }
+    }
 }

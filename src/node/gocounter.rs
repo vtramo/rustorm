@@ -1,7 +1,7 @@
 use crate::node::{Node, common_init_node};
-use crate::payloads::SeqKvPayload::Write;
+use crate::payloads::KvPayload::Write;
 use crate::payloads::{
-    Event, GoCounterOrSeqKvPayload, GoCounterPayload, InitPayload, SeqKvPayload, SyncCounter,
+    Event, GoCounterOrSeqKvPayload, GoCounterPayload, InitPayload, KvPayload, SyncCounter,
 };
 use crate::stdout_json::StdoutJson;
 use crate::{Body, Message};
@@ -94,7 +94,7 @@ impl Node<GoCounterOrSeqKvPayload, SyncCounter> for GrowOnlyCounterNode {
                         }
                     }
                     GoCounterOrSeqKvPayload::SeqKv(seq_kv_payload) => match seq_kv_payload {
-                        SeqKvPayload::ReadOk { value } => {
+                        KvPayload::ReadOk { value } => {
                             let Some(in_reply_to) = in_reply_to else {
                                 return Ok(());
                             };
@@ -107,10 +107,11 @@ impl Node<GoCounterOrSeqKvPayload, SyncCounter> for GrowOnlyCounterNode {
                                 .or_insert(value);
                         }
                         Write { .. }
-                        | SeqKvPayload::CasOk
-                        | SeqKvPayload::WriteOk
-                        | SeqKvPayload::Cas { .. }
-                        | SeqKvPayload::Read { .. } => {}
+                        | KvPayload::CasOk
+                        | KvPayload::WriteOk
+                        | KvPayload::Cas { .. }
+                        | KvPayload::Error { .. }
+                        | KvPayload::Read { .. } => {}
                     },
                 }
             }
@@ -127,7 +128,7 @@ impl Node<GoCounterOrSeqKvPayload, SyncCounter> for GrowOnlyCounterNode {
                         body: Body {
                             msg_id: Some(msg_id),
                             in_reply_to: None,
-                            payload: GoCounterOrSeqKvPayload::SeqKv(SeqKvPayload::Read {
+                            payload: GoCounterOrSeqKvPayload::SeqKv(KvPayload::Read {
                                 key: node_id.clone(),
                             }),
                         },
