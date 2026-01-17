@@ -36,71 +36,71 @@ impl MultiKafkaLogNode {
     }
 
     pub async fn run(&mut self) {
-        tokio::select! {
-            Some(stdin_msg) = self.stdin_channel_rx.recv() => {
-                match stdin_msg.body.payload {
-                    KafkaLogOrKvPayload::KafkaLog(kafka_log_payload) => {
-                        match kafka_log_payload {
-                            KafkaLogPayload::Send { key, msg } => {
-                                let log = self.log_by_key
-                                    .entry(key.to_string())
-                                    .or_insert(Arc::new(AsyncKafkaLog::new(
-                                        key.to_string(),
-                                        self.id.clone(),
-                                        self.log_channel_tx.clone(),
-                                        self.stdout_channel_tx.clone(),
-                                        Arc::clone(&self.msg_generator),
-                                    )));
+        loop {
+            tokio::select! {
+                Some(stdin_msg) = self.stdin_channel_rx.recv() => {
+                    match stdin_msg.body.payload {
+                        KafkaLogOrKvPayload::KafkaLog(kafka_log_payload) => {
+                            match kafka_log_payload {
+                                KafkaLogPayload::Send { key, msg } => {
+                                    let log = self.log_by_key
+                                        .entry(key.to_string())
+                                        .or_insert(Arc::new(AsyncKafkaLog::new(
+                                            key.to_string(),
+                                            self.id.clone(),
+                                            self.log_channel_tx.clone(),
+                                            self.stdout_channel_tx.clone(),
+                                            Arc::clone(&self.msg_generator),
+                                        )));
 
+                                    let send_id = NodeMsgId::new(
+                                        stdin_msg.src,
+                                        stdin_msg.body.msg_id.expect("msg_id is required (send)"),
+                                    );
+                                    let log = Arc::clone(&log);
+                                    log.send(send_id, msg);
+                                },
+                                _ => {}
+                            }
+                        },
+                        KafkaLogOrKvPayload::Kv(kv_payload) => {
+                            match kv_payload {
+                                KvPayload::CasOk => {
+                                    let in_reply_to = stdin_msg
+                                        .body
+                                        .in_reply_to
+                                        .expect("in_reply_to is required (cas_ok)");
 
-                                let send_id = NodeMsgId::new(
-                                    stdin_msg.src,
-                                    stdin_msg.body.msg_id.expect("msg_id is required (send)"),
-                                );
-                                let log = Arc::clone(&log);
-                                log.send(send_id, msg);
-                            },
-                            _ => {}
-                        }
-                    },
-                    KafkaLogOrKvPayload::Kv(kv_payload) => {
-                        match kv_payload {
-                            KvPayload::CasOk => {
-                                let in_reply_to = stdin_msg
-                                    .body
-                                    .in_reply_to
-                                    .expect("in_reply_to is required (cas_ok)");
+                                    let log_key = self.msg_generator
+                                        .consume_log_key(in_reply_to)
+                                        .expect(&format!("log_key not found for msg_id {}", in_reply_to));
 
-                                let log_key = self.msg_generator
-                                    .consume_log_key(in_reply_to)
-                                    .expect(&format!("log_key not found for msg_id {}", in_reply_to));
+                                    let log = self.log_by_key
+                                        .get(&log_key)
+                                        .expect(&format!("log not found for key {}", log_key));
 
-                                let log = self.log_by_key
-                                    .get(&log_key)
-                                    .expect(&format!("log not found for key {}", log_key));
+                                    let (send_id, offset) = log.cas_ok(in_reply_to);
+                                    self.stdout_channel_tx.send(Message {
+                                        src: self.id.clone(),
+                                        dst: send_id.node_id,
+                                        body: Body {
+                                            msg_id: Some(self.msg_generator.generate_msg_id()),
+                                            in_reply_to: Some(send_id.msg_id),
+                                            payload: KafkaLogOrKvPayload::KafkaLog(
+                                                KafkaLogPayload::SendOk { offset }
+                                            )
+                                        },
+                                    }).expect("failed to write to seq-kv");
+                                },
+                                _ => {}
+                            }
+                        },
+                    }
+                },
+                Some(log_msg) = self.log_channel_rx.recv() => {
 
-                                let (send_id, offset) = log.cas_ok(in_reply_to);
-                                self.stdout_channel_tx.send(Message {
-                                    src: self.id.clone(),
-                                    dst: send_id.node_id,
-                                    body: Body {
-                                        msg_id: Some(self.msg_generator.generate_msg_id()),
-                                        in_reply_to: Some(send_id.msg_id),
-                                        payload: KafkaLogOrKvPayload::KafkaLog(
-                                            KafkaLogPayload::SendOk { offset }
-                                        )
-                                    },
-                                }).expect("failed to write to seq-kv");
-                                debug!("send ok!")
-                            },
-                            _ => {}
-                        }
-                    },
-                }
-            },
-            Some(log_msg) = self.log_channel_rx.recv() => {
-
-            },
+                },
+            }
         }
     }
 }

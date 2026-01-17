@@ -3,7 +3,7 @@ use crate::mloop::receive_init_then_send_init_ok;
 use crate::node::multikafkalog::MultiKafkaLogNode;
 use crate::payloads::KafkaLogOrKvPayload;
 use crate::stdout_json::StdoutJson;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
 pub async fn main_loop_async() -> anyhow::Result<()> {
     let node_id = receive_init_then_send_init_ok()?;
@@ -14,20 +14,30 @@ pub async fn main_loop_async() -> anyhow::Result<()> {
         tokio::sync::mpsc::unbounded_channel::<Message<KafkaLogOrKvPayload>>();
 
     tokio::spawn(async move {
-        let mut async_stdin = tokio::io::stdin();
+        let async_stdin = tokio::io::stdin();
+        let mut reader = BufReader::new(async_stdin).lines();
         let mut stdout = StdoutJson::new();
 
-        let mut stdin_buf = [0u8; 1024];
-        tokio::select! {
-            Some(msg) = stdout_rx.recv() => {
-                stdout.write(&msg).expect("failed to write to stdout");
-            },
-            Ok(_) = async_stdin.read(&mut stdin_buf) => {
-                let msg = serde_json::from_slice::<Message<KafkaLogOrKvPayload>>(&stdin_buf)
-                    .expect("msg deserialization failed");
-                stdin_tx.send(msg).expect("failed to send msg to stdout channel");
-                stdin_buf.fill(0);
-            },
+        loop {
+            tokio::select! {
+                Some(msg) = stdout_rx.recv() => {
+                    stdout.write(&msg).expect("failed to write to stdout");
+                },
+                stdin_msg = reader.next_line() => {
+                    match stdin_msg {
+                        Ok(Some(msg)) => {
+                            let msg = serde_json::from_str::<Message<KafkaLogOrKvPayload>>(&msg)
+                                .expect("msg deserialization failed");
+                            stdin_tx.send(msg).expect("failed to send msg to stdout channel");
+                        },
+                        Err(e) => {
+                            eprintln!("stdin read error: {}", e);
+                            break;
+                        }
+                        _ => break
+                    }
+                },
+            }
         }
     });
 
