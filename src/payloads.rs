@@ -206,9 +206,8 @@ pub enum KvPayload {
     },
     CasOk,
     Error {
-        in_reply_to: usize,
         code: usize,
-        text: String,
+        text: Option<String>,
     },
 }
 unsafe impl Send for KvPayload {}
@@ -327,4 +326,9 @@ impl<'de> Deserialize<'de> for Message<KafkaLogOrKvPayload> {
             })
         }
     }
+}
+
+pub struct KvErrorCode;
+impl KvErrorCode {
+    pub const CAS_ERROR : usize = 21;
 }

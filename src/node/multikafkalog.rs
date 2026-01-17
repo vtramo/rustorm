@@ -2,9 +2,8 @@ use crate::payloads::{KafkaLogOrKvPayload, KafkaLogPayload, KvPayload};
 use crate::{Body, Message};
 use dashmap::DashMap;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use log::debug;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct MultiKafkaLogNode {
@@ -92,6 +91,38 @@ impl MultiKafkaLogNode {
                                         },
                                     }).expect("failed to write to seq-kv");
                                 },
+                                KvPayload::Error { code, text: _text } => {
+                                    let in_reply_to = stdin_msg
+                                        .body
+                                        .in_reply_to
+                                        .expect("in_reply_to is required (cas error)");
+
+                                    let log_key = self.msg_generator
+                                        .consume_log_key(in_reply_to)
+                                        .expect(&format!("log_key not found for msg_id {}", in_reply_to));
+
+                                    let log = self.log_by_key
+                                        .get(&log_key)
+                                        .expect(&format!("log not found for key {}", log_key));
+
+                                    log.cas_error(in_reply_to);
+                                },
+                                KvPayload::ReadOk { value: updated_offset } => {
+                                    let in_reply_to = stdin_msg
+                                        .body
+                                        .in_reply_to
+                                        .expect("in_reply_to is required (read ok)");
+
+                                    let log_key = self.msg_generator
+                                        .consume_log_key(in_reply_to)
+                                        .expect(&format!("log_key not found for msg_id {}", in_reply_to));
+
+                                    let log = self.log_by_key
+                                        .get(&log_key)
+                                        .expect(&format!("log not found for key {}", log_key));
+
+                                    log.update_offset(in_reply_to, updated_offset);
+                                }
                                 _ => {}
                             }
                         },
@@ -157,7 +188,6 @@ struct AsyncKafkaLog {
 impl AsyncKafkaLog {
     const LIN_KV: &'static str = "lin-kv";
     const SEQ_KV: &'static str = "seq-kv";
-    const CAS_OFFSET_KEY: &'static str = "offset";
 
     fn new(
         key: String,
@@ -185,7 +215,7 @@ impl AsyncKafkaLog {
             LogMsgSemantics::Cas {
                 send_id,
                 msg,
-                new_offset: local_offset + 1,
+                offset: local_offset + 1,
             },
         );
         if let Err(_) = self.stdout_channel_tx.send(Message {
@@ -195,7 +225,7 @@ impl AsyncKafkaLog {
                 msg_id: Some(cas_msg_id),
                 in_reply_to: None,
                 payload: KafkaLogOrKvPayload::Kv(KvPayload::Cas {
-                    key: format!("offset-{}", self.key),
+                    key: self.log_offset_key(),
                     from: local_offset,
                     to: local_offset + 1,
                     create_if_not_exists: true,
@@ -204,17 +234,25 @@ impl AsyncKafkaLog {
         }) {}
     }
 
+    fn log_offset_key(&self) -> String {
+        format!("offset-{}", self.key)
+    }
+
     fn cas_ok(&self, cas_msg_id: usize) -> (NodeMsgId, usize) {
         let LogMsgSemantics::Cas {
             send_id,
             msg,
-            new_offset,
+            offset,
         } = self
             .semantics_by_msg_id
             .remove(&cas_msg_id)
             .expect("cas_ok called for unknown msg_id")
-            .1;
+            .1
+        else {
+            panic!("cas_ok called for unknown msg_id")
+        };
 
+        self.local_offset.store(offset, Ordering::Relaxed);
         let write_msg_id = self.msg_generator.generate_log_msg_id(self.key.clone());
         self.stdout_channel_tx
             .send(Message {
@@ -224,13 +262,68 @@ impl AsyncKafkaLog {
                     msg_id: Some(write_msg_id),
                     in_reply_to: None,
                     payload: KafkaLogOrKvPayload::Kv(KvPayload::Write {
-                        key: format!("{}-{}", self.key, new_offset),
+                        key: format!("{}-{}", self.key, offset),
                         value: msg,
                     }),
                 },
             })
             .expect("failed to write to seq-kv");
-        (send_id, new_offset)
+        (send_id, offset)
+    }
+
+    fn cas_error(&self, cas_msg_id: usize) {
+        let LogMsgSemantics::Cas {
+            send_id,
+            msg,
+            offset: _offset,
+        } = self
+            .semantics_by_msg_id
+            .remove(&cas_msg_id)
+            .expect(&format!(
+                "cas_error called for unknown msg_id {}",
+                cas_msg_id
+            ))
+            .1
+        else {
+            panic!("cas_error called for unknown msg_id {}", cas_msg_id)
+        };
+
+        let read_msg_id = self.msg_generator.generate_log_msg_id(self.key.clone());
+        self.stdout_channel_tx
+            .send(Message {
+                src: self.node_id.clone(),
+                dst: Self::LIN_KV.to_string(),
+                body: Body {
+                    msg_id: Some(read_msg_id),
+                    in_reply_to: None,
+                    payload: KafkaLogOrKvPayload::Kv(KvPayload::Read {
+                        key: self.log_offset_key(),
+                    }),
+                },
+            })
+            .expect("failed to read from lin-kv");
+
+        self.semantics_by_msg_id.insert(
+            read_msg_id,
+            LogMsgSemantics::ReadUpdatedOffset { send_id, msg },
+        );
+    }
+
+    fn update_offset(&self, read_msg_id: usize, new_offset: usize) {
+        let LogMsgSemantics::ReadUpdatedOffset { send_id, msg } = self
+            .semantics_by_msg_id
+            .remove(&read_msg_id)
+            .expect(&format!(
+                "update_offset called for unknown msg_id {}",
+                read_msg_id
+            ))
+            .1
+        else {
+            panic!("update_offset called for unknown msg_id {}", read_msg_id)
+        };
+
+        self.local_offset.store(new_offset, Ordering::Relaxed);
+        self.send(send_id, msg);
     }
 }
 
@@ -239,7 +332,11 @@ enum LogMsgSemantics {
     Cas {
         send_id: NodeMsgId,
         msg: usize,
-        new_offset: usize,
+        offset: usize,
+    },
+    ReadUpdatedOffset {
+        send_id: NodeMsgId,
+        msg: usize,
     },
 }
 
