@@ -330,5 +330,6 @@ impl<'de> Deserialize<'de> for Message<KafkaLogOrKvPayload> {
 
 pub struct KvErrorCode;
 impl KvErrorCode {
-    pub const CAS_ERROR : usize = 21;
+    pub const CAS_ERROR : usize = 22;
+    pub const KEY_NOT_FOUND : usize = 20;
 }

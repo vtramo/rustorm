@@ -1,9 +1,9 @@
-use crate::Message;
 use crate::mloop::receive_init_then_send_init_ok;
 use crate::node::multikafkalog::MultiKafkaLogNode;
 use crate::payloads::KafkaLogOrKvPayload;
 use crate::stdout_json::StdoutJson;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use crate::Message;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 pub async fn main_loop_async() -> anyhow::Result<()> {
     let node_id = receive_init_then_send_init_ok()?;
@@ -34,14 +34,16 @@ pub async fn main_loop_async() -> anyhow::Result<()> {
                             eprintln!("stdin read error: {}", e);
                             break;
                         }
-                        _ => break
+                        _ => {
+                            eprintln!("error stdin! {:?}", stdin_msg);
+                        }
                     }
                 },
             }
         }
     });
 
-    let mut node = MultiKafkaLogNode::new(node_id, stdin_rx, stdout_tx);
+    let mut node = MultiKafkaLogNode::new(node_id, 5, stdin_rx, stdout_tx);
 
     node.run().await;
 
