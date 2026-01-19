@@ -3,8 +3,8 @@ use crate::{Body, Message};
 use dashmap::DashMap;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct MultiKafkaLogNode {
@@ -184,6 +184,10 @@ impl MultiKafkaLogNode {
         if filtered_log_keys.len() == 0 {
             self.build_and_send_empty_list_committed_offsets_ok_msg(&list_committed_offsets_id);
         } else {
+            self.completed_offset_reads.insert(
+                list_committed_offsets_id.clone(),
+                Progress::new(filtered_log_keys.len()),
+            );
             for key in filtered_log_keys {
                 let log = self.log_by_key.get(&key).unwrap();
                 log.read_committed_offset(list_committed_offsets_id.clone());
@@ -771,11 +775,16 @@ impl AsyncKafkaLog {
             .get(&NodeMsgId::new(self.node_id.clone(), read_msg_id))
         {
             None => panic!("read_ok called for unknown msg_id {}", read_msg_id),
-            Some(entry) => match *entry.value() {
+            Some(entry) => match entry.value() {
                 LogMsgSemantics::ReadUpdatedOffset { .. } => ReadOkSemantics::ReadUpdatedOffset,
                 LogMsgSemantics::ReadPollMessage { .. } => ReadOkSemantics::ReadPollMessage,
-                LogMsgSemantics::ReadUpdatedCommittedOffset { .. } => {
+                LogMsgSemantics::ReadUpdatedCommittedOffset { commit_id, offset }
+                    if offset.is_some() =>
+                {
                     ReadOkSemantics::ReadUpdatedCommittedOffset
+                }
+                LogMsgSemantics::ReadUpdatedCommittedOffset { commit_id, offset } => {
+                    ReadOkSemantics::ListCommittedOffset
                 }
                 LogMsgSemantics::CasSend { .. } => {
                     panic!("read_ok called for cas send msg_id {}", read_msg_id);
@@ -813,13 +822,13 @@ impl AsyncKafkaLog {
             .semantics_by_msg_id
             .remove(&NodeMsgId::new(self.node_id.clone(), read_msg_id))
             .expect(&format!(
-                "update_committed_offset called for unknown msg_id {}",
+                "list_committed_offset_read_ok called for unknown msg_id {}",
                 read_msg_id
             ))
             .1
         else {
             panic!(
-                "update_committed_offset called for unknown msg_id {}",
+                "list_committed_offset_read_ok called for unknown msg_id {}",
                 read_msg_id
             )
         };
