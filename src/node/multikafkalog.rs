@@ -13,8 +13,6 @@ pub struct MultiKafkaLogNode {
     msg_generator: Arc<MsgGenerator>,
     input_channel_rx: tokio::sync::mpsc::UnboundedReceiver<Message<KafkaLogOrKvPayload>>,
     stdout_channel_tx: tokio::sync::mpsc::UnboundedSender<Message<KafkaLogOrKvPayload>>,
-    log_channel_tx: tokio::sync::mpsc::UnboundedSender<LogMessage>,
-    log_channel_rx: tokio::sync::mpsc::UnboundedReceiver<LogMessage>,
     log_by_key: HashMap<String, AsyncKafkaLog>,
     completed_polls: HashMap<NodeMsgId, Progress<(String, Vec<(usize, usize)>)>>,
     completed_commits: HashMap<NodeMsgId, Progress<String>>,
@@ -28,15 +26,12 @@ impl MultiKafkaLogNode {
         stdin_channel_rx: tokio::sync::mpsc::UnboundedReceiver<Message<KafkaLogOrKvPayload>>,
         stdout_channel_tx: tokio::sync::mpsc::UnboundedSender<Message<KafkaLogOrKvPayload>>,
     ) -> Self {
-        let (log_channel_tx, log_channel_rx) = tokio::sync::mpsc::unbounded_channel();
         Self {
             id: node_id,
             max_poll,
             msg_generator: Arc::new(MsgGenerator::new()),
             input_channel_rx: stdin_channel_rx,
             stdout_channel_tx,
-            log_channel_tx,
-            log_channel_rx,
             log_by_key: HashMap::new(),
             completed_polls: HashMap::new(),
             completed_commits: HashMap::new(),
@@ -104,9 +99,6 @@ impl MultiKafkaLogNode {
                             }
                         },
                     }
-                },
-                Some(log_msg) = self.log_channel_rx.recv() => {
-
                 },
             }
         }
@@ -339,7 +331,6 @@ impl MultiKafkaLogNode {
                 key.to_string(),
                 self.id.clone(),
                 self.max_poll,
-                self.log_channel_tx.clone(),
                 self.stdout_channel_tx.clone(),
                 Arc::clone(&self.msg_generator),
             ))
@@ -555,15 +546,12 @@ impl MsgGenerator {
     }
 }
 
-unsafe impl Send for MsgGenerator {}
-unsafe impl Sync for MsgGenerator {}
 
 #[derive(Debug)]
 struct AsyncKafkaLog {
     key: String,
     node_id: String,
     max_poll: usize,
-    log_channel_tx: tokio::sync::mpsc::UnboundedSender<LogMessage>,
     stdout_channel_tx: tokio::sync::mpsc::UnboundedSender<Message<KafkaLogOrKvPayload>>,
     msg_generator: Arc<MsgGenerator>,
     semantics_by_msg_id: DashMap<NodeMsgId, LogMsgSemantics>,
@@ -580,7 +568,6 @@ impl AsyncKafkaLog {
         key: String,
         node_id: String,
         max_poll: usize,
-        log_channel_tx: tokio::sync::mpsc::UnboundedSender<LogMessage>,
         stdout_channel_tx: tokio::sync::mpsc::UnboundedSender<Message<KafkaLogOrKvPayload>>,
         msg_generator: Arc<MsgGenerator>,
     ) -> Self {
@@ -592,7 +579,6 @@ impl AsyncKafkaLog {
             key,
             max_poll,
             node_id,
-            log_channel_tx,
             stdout_channel_tx,
             msg_generator,
             semantics_by_msg_id: DashMap::new(),
@@ -778,12 +764,12 @@ impl AsyncKafkaLog {
             Some(entry) => match entry.value() {
                 LogMsgSemantics::ReadUpdatedOffset { .. } => ReadOkSemantics::ReadUpdatedOffset,
                 LogMsgSemantics::ReadPollMessage { .. } => ReadOkSemantics::ReadPollMessage,
-                LogMsgSemantics::ReadUpdatedCommittedOffset { commit_id, offset }
+                LogMsgSemantics::ReadUpdatedCommittedOffset { commit_id: _commit_id, offset }
                     if offset.is_some() =>
                 {
                     ReadOkSemantics::ReadUpdatedCommittedOffset
                 }
-                LogMsgSemantics::ReadUpdatedCommittedOffset { commit_id, offset } => {
+                LogMsgSemantics::ReadUpdatedCommittedOffset { .. } => {
                     ReadOkSemantics::ListCommittedOffset
                 }
                 LogMsgSemantics::CasSend { .. } => {

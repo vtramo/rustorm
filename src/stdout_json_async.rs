@@ -49,6 +49,3 @@ impl From<AsyncStdoutJson> for tokio::io::Stdout {
         stdout_json.async_stdout
     }
 }
-
-unsafe impl Send for AsyncStdoutJson {}
-unsafe impl Sync for AsyncStdoutJson {}

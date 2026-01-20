@@ -4,7 +4,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_core::Serializer;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::marker::{Send, Sync};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -13,8 +12,6 @@ pub enum EchoPayload {
     Echo { echo: String },
     EchoOk { echo: String },
 }
-unsafe impl Send for EchoPayload {}
-unsafe impl Sync for EchoPayload {}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -22,8 +19,6 @@ pub struct InitPayload {
     pub node_id: String,
     pub node_ids: Vec<String>,
 }
-unsafe impl Send for InitPayload {}
-unsafe impl Sync for InitPayload {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -31,8 +26,6 @@ pub struct InitOkPayload {
     #[serde(rename = "type")]
     pub ty: String,
 }
-unsafe impl Send for InitOkPayload {}
-unsafe impl Sync for InitOkPayload {}
 
 impl InitOkPayload {
     const TYPE: &'static str = "init_ok";
@@ -53,8 +46,6 @@ pub enum GeneratePayload {
         guid: String,
     },
 }
-unsafe impl Send for GeneratePayload {}
-unsafe impl Sync for GeneratePayload {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -77,15 +68,11 @@ pub enum BroadcastPayload {
     },
     GossipOk,
 }
-unsafe impl Send for BroadcastPayload {}
-unsafe impl Sync for BroadcastPayload {}
 
 #[derive(Debug, Clone)]
 pub enum InjectedPayload {
     Gossip,
 }
-unsafe impl Send for InjectedPayload {}
-unsafe impl Sync for InjectedPayload {}
 
 #[derive(Debug, Clone)]
 pub enum Event<P, IP>
@@ -180,8 +167,6 @@ pub enum GoCounterPayload {
     Add { delta: usize },
     AddOk,
 }
-unsafe impl Send for GoCounterPayload {}
-unsafe impl Sync for GoCounterPayload {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -210,8 +195,6 @@ pub enum KvPayload {
         text: Option<String>,
     },
 }
-unsafe impl Send for KvPayload {}
-unsafe impl Sync for KvPayload {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SyncCounter {
@@ -219,8 +202,6 @@ pub enum SyncCounter {
     CheckWrites,
 }
 
-unsafe impl Send for SyncCounter {}
-unsafe impl Sync for SyncCounter {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -257,8 +238,6 @@ pub enum KafkaLogOrKvPayload {
     Kv(KvPayload),
 }
 
-unsafe impl Send for KafkaLogPayload {}
-unsafe impl Sync for KafkaLogPayload {}
 
 impl Serialize for KafkaLogOrKvPayload {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -330,6 +309,60 @@ impl<'de> Deserialize<'de> for Message<KafkaLogOrKvPayload> {
 
 pub struct KvErrorCode;
 impl KvErrorCode {
-    pub const CAS_ERROR : usize = 22;
-    pub const KEY_NOT_FOUND : usize = 20;
+    pub const CAS_ERROR: usize = 22;
+    pub const KEY_NOT_FOUND: usize = 20;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum TxnPayload {
+    Txn { txn: Vec<TxnOperation> },
+    TxnOk { txn: Vec<TxnOperation> },
+}
+
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub enum TxnOperation {
+    Read { key: usize, value: Option<usize> },
+    Write { key: usize, value: Option<usize> },
+}
+
+impl Serialize for TxnOperation {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer
+    {
+        match self {
+            TxnOperation::Read { key, value } => {
+                ("r", key, value).serialize(serializer)
+            }
+            TxnOperation::Write { key, value } => {
+                ("w", key, value).serialize(serializer)
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for TxnOperation {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>
+    {
+        let json = serde_json::Value::deserialize(deserializer)?;
+        let array = json.as_array().expect("operation is required to be an array");
+        let operation_type = array[0].as_str().expect("operation type is required");
+        match operation_type {
+            "r" => {
+                let key = array[1].as_u64().expect("key is required") as usize;
+                let value = array[2].as_u64().map(|v| v as usize);
+                Ok(TxnOperation::Read { key, value })
+            }
+            "w" => {
+                let key = array[1].as_u64().expect("key is required") as usize;
+                let value = array[2].as_u64().map(|v| v as usize);
+                Ok(TxnOperation::Write { key, value })
+            }
+            _ => Err(Error::custom("invalid operation type")),
+        }
+    }
 }
