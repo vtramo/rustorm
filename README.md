@@ -5,6 +5,8 @@
 
 — **Leslie Lamport**
 
+https://github.com/user-attachments/assets/b16e39ae-5c8f-4894-b89a-d2d45c52f4ba
+
 Rustorm is a Rust implementation of the [Maelstrom](https://fly.io/dist-sys/) distributed systems challenges.
 
 ## Run Maelstrom Tests
