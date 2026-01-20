@@ -6,6 +6,7 @@ pub mod multibroadcast;
 pub mod kafkalog;
 pub mod multikafkalog;
 pub mod singletxn;
+pub mod multitxn;
 
 use crate::payloads::{Event, InitOkPayload, InitPayload};
 use crate::stdout_json::StdoutJson;
