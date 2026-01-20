@@ -53,6 +53,7 @@ impl_message_deserialize!(
     payloads::BroadcastPayload,
     payloads::InitPayload,
     payloads::KafkaLogPayload,
+    payloads::TxnPayload
 );
 
 impl<T> Message<T>

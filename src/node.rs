@@ -5,6 +5,7 @@ pub mod gocounter;
 pub mod multibroadcast;
 pub mod kafkalog;
 pub mod multikafkalog;
+pub mod singletxn;
 
 use crate::payloads::{Event, InitOkPayload, InitPayload};
 use crate::stdout_json::StdoutJson;

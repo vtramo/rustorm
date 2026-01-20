@@ -324,7 +324,7 @@ pub enum TxnPayload {
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum TxnOperation {
     Read { key: usize, value: Option<usize> },
-    Write { key: usize, value: Option<usize> },
+    Write { key: usize, value: usize },
 }
 
 impl Serialize for TxnOperation {
@@ -359,7 +359,7 @@ impl<'de> Deserialize<'de> for TxnOperation {
             }
             "w" => {
                 let key = array[1].as_u64().expect("key is required") as usize;
-                let value = array[2].as_u64().map(|v| v as usize);
+                let value = array[2].as_u64().map(|v| v as usize).expect("value is required");
                 Ok(TxnOperation::Write { key, value })
             }
             _ => Err(Error::custom("invalid operation type")),

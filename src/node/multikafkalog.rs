@@ -511,10 +511,6 @@ impl MultiKafkaLogNode {
     }
 }
 
-enum LogMessage {
-    SendOk { send_id: usize },
-}
-
 #[derive(Debug)]
 struct MsgGenerator {
     free_msg_id: AtomicUsize,
@@ -708,7 +704,7 @@ impl AsyncKafkaLog {
         }
     }
 
-    fn cas_error_send(&self, send_id: NodeMsgId, msg: usize, offset: usize) {
+    fn cas_error_send(&self, send_id: NodeMsgId, msg: usize, _offset: usize) {
         let read_msg_id = self.msg_generator.generate_log_msg_id(self.key.clone());
         self.stdout_channel_tx
             .send(Message {

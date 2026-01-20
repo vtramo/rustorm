@@ -1,12 +1,12 @@
 use crate::Message;
+use crate::mloop::init;
 use crate::node::Node;
-use crate::payloads::{Event, InitPayload};
+use crate::payloads::Event;
 use crate::stdout_json::StdoutJson;
 use anyhow::Context;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use std::io::BufRead;
-use crate::mloop::init;
 
 pub fn main_loop<N, P, IP>() -> anyhow::Result<()>
 where

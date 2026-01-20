@@ -22,12 +22,12 @@ pub fn init() -> anyhow::Result<Message<InitPayload>> {
 pub fn receive_init_then_send_init_ok() -> anyhow::Result<String> {
     let Message {
         src,
-        dst,
+        dst: _,
         body:
             Body {
                 msg_id,
-                in_reply_to,
-                payload: InitPayload { node_id, node_ids },
+                in_reply_to: _,
+                payload: InitPayload { node_id, node_ids: _ },
             },
     } = init()?;
 
